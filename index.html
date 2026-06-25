@@ -580,6 +580,7 @@ self.addEventListener('fetch', e => {
       <button class="nav-more-item" onclick="switchTab('strategies');closeMoreMenu()"><span style="font-size:22px;">&#128214;</span><span>Playbook</span></button>
       <button class="nav-more-item" onclick="switchTab('prop-firm');closeMoreMenu()"><span style="font-size:22px;">&#127970;</span><span>Prop Firms</span></button>
       <button class="nav-more-item" onclick="switchTab('red-folder');closeMoreMenu()"><span style="font-size:22px;">&#128221;</span><span>Red Folder News</span></button>
+      <button class="nav-more-item" onclick="switchTab('taxes');closeMoreMenu()"><span style="font-size:22px;">&#128176;</span><span>Taxes/Withdrawals</span></button>
     </div>
   </div>
   <div id="more-menu-backdrop" style="display:none;position:fixed;inset:0;z-index:10000;" onclick="closeMoreMenu()"></div>
@@ -1067,6 +1068,49 @@ self.addEventListener('fetch', e => {
   </div>
 </div>
   <!-- ═════ PROP FIRM ═══════════ -->
+  <!-- TAXES / WITHDRAWALS TAB -->
+  <div id="tab-taxes" class="section" style="padding-top:0;">
+    <div class="card" style="border-radius:0 0 var(--radius-lg) var(--radius-lg);border-top:none;margin-bottom:14px;">
+      <div class="card-title">💰 Taxes &amp; Withdrawals</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px;line-height:1.5;">Tracks every withdrawal of trading profits — from prop firm accounts (added automatically when you record them) and live/personal accounts (add them below). Set your tax rate to see how much to set aside and your net take-home.</div>
+      <div class="form-group" style="margin-bottom:0;">
+        <label>Tax Set-Aside Rate (%)</label>
+        <input type="number" id="tax-rate" min="0" max="100" step="0.5" placeholder="e.g. 30" oninput="renderTaxesTab()" />
+      </div>
+    </div>
+
+    <!-- Summary tiles -->
+    <div class="metrics-grid" id="tax-summary" style="margin:0 0 14px;"></div>
+
+    <!-- Add live/personal withdrawal -->
+    <div class="card" style="margin-bottom:14px;">
+      <div class="card-title" style="font-size:15px;">+ Add Withdrawal</div>
+      <input type="hidden" id="wd-edit-id" value="" />
+      <div class="form-grid-2" style="margin-bottom:0;">
+        <div class="form-group"><label>Date</label><input type="date" id="wd-date" /></div>
+        <div class="form-group"><label>Amount ($)</label><input type="text" inputmode="decimal" id="wd-amount" placeholder="e.g. 1500" /></div>
+      </div>
+      <div class="form-group"><label>Source</label>
+        <select id="wd-source">
+          <option value="Live / Personal">Live / Personal Account</option>
+          <option value="Other">Other</option>
+        </select>
+      </div>
+      <div class="form-group"><label>Note (optional)</label><input type="text" id="wd-note" placeholder="e.g. Monthly payout, broker transfer" /></div>
+      <div style="display:flex;gap:10px;">
+        <button class="btn btn-primary" style="flex:1;" onclick="saveLiveWithdrawal()">Save Withdrawal</button>
+        <button class="btn btn-ghost" onclick="clearLiveWithdrawalForm()">Clear</button>
+      </div>
+    </div>
+
+    <!-- Withdrawal list -->
+    <div style="margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);">All Withdrawals</div>
+      <button class="btn btn-ghost" style="font-size:11px;padding:5px 12px;" onclick="exportWithdrawalsCSV()">↓ CSV</button>
+    </div>
+    <div id="withdrawals-list" style="padding-bottom:40px;"></div>
+  </div>
+
   <!-- RED FOLDER NEWS TAB -->
   <div id="tab-red-folder" class="section" style="padding-top:0;">
     <div class="card" id="red-folder-form-card" style="border-radius:0 0 var(--radius-lg) var(--radius-lg);border-top:none;margin-bottom:16px;">
@@ -1256,7 +1300,7 @@ self.addEventListener('fetch', e => {
 // ═══════════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════════
-let trades = [], reflections = [], strategies = [], redFolderEvents = [];
+let trades = [], reflections = [], strategies = [], redFolderEvents = [], liveWithdrawals = [];
 let pnlChart, setupChart, wlChart, setupWrChart, sessionWrChart, dowChart;
 let pendingPhotos = [], editPhotos = [];
 let lightboxPhotos = [], lightboxIndex = 0;
@@ -1329,11 +1373,13 @@ function loadData() {
   reflections.forEach(r=>{ if(!Array.isArray(r.mindset))r.mindset=r.mindset?[r.mindset]:[]; });
   try { strategies = JSON.parse(localStorage.getItem('tj_strategies')||'[]'); } catch(e){strategies=[];}
   try { redFolderEvents = JSON.parse(localStorage.getItem('tj_redfolder')||'[]'); } catch(e){redFolderEvents=[];}
+  try { liveWithdrawals = JSON.parse(localStorage.getItem('tj_withdrawals')||'[]'); } catch(e){liveWithdrawals=[];}
 }
 function saveData(){ localStorage.setItem('tj_trades',JSON.stringify(trades)); }
 function saveReflectionData(){ localStorage.setItem('tj_reflections',JSON.stringify(reflections)); }
 function saveStrategies(){ localStorage.setItem('tj_strategies',JSON.stringify(strategies)); }
 function persistRedFolder(){ localStorage.setItem('tj_redfolder',JSON.stringify(redFolderEvents)); }
+function persistLiveWithdrawals(){ localStorage.setItem('tj_withdrawals',JSON.stringify(liveWithdrawals)); }
 
 // ═══════════════════════════════════════════════════════════════
 // MINDSET HELPERS (plain <select>)
@@ -1543,6 +1589,7 @@ function switchTab(name){
   if(name==='strategies')renderStrategiesList();
   if(name==='prop-firm')renderPropFirmTab();
   if(name==='red-folder'){renderRedFolderList();renderRedFolderNowBanner();}
+  if(name==='taxes')renderTaxesTab();
 }
 
 
@@ -2901,6 +2948,200 @@ function _saveReflectionNew(){
   renderReflections(); flash('ref-msg');
 }
 // ═══════════════════════════════════════════════════════════════
+// TAXES / WITHDRAWALS
+// ═══════════════════════════════════════════════════════════════
+function getTaxRate(){
+  const v = parseFloat(localStorage.getItem('tj_taxrate'));
+  return isNaN(v) ? 30 : v;
+}
+function setTaxRate(v){ localStorage.setItem('tj_taxrate', String(v)); }
+
+// Unified list of every withdrawal across prop firm + live accounts.
+// Each entry: {id, date, amount, source, account, note, takeHome, split, kind, pfId, idx}
+// kind = 'prop' (lives inside a prop account) or 'live' (standalone)
+function getAllWithdrawals(){
+  const out = [];
+  // Prop firm withdrawals
+  propFirmAccounts.forEach(a=>{
+    (a.withdrawals||[]).forEach((w,i)=>{
+      out.push({
+        id: 'pf-'+a.id+'-'+i,
+        date: w.date||'',
+        amount: Number(w.amount)||0,
+        takeHome: w.takeHome!=null?Number(w.takeHome):(Number(w.amount)||0),
+        split: w.split||null,
+        note: w.note||'',
+        source: 'Prop Firm',
+        account: a.firm + (a.label?' — '+a.label:''),
+        kind: 'prop',
+        pfId: a.id,
+        idx: i
+      });
+    });
+  });
+  // Live / personal withdrawals
+  liveWithdrawals.forEach(w=>{
+    out.push({
+      id: 'live-'+w.id,
+      date: w.date||'',
+      amount: Number(w.amount)||0,
+      takeHome: Number(w.amount)||0,
+      split: null,
+      note: w.note||'',
+      source: w.source||'Live / Personal',
+      account: w.source||'Live / Personal',
+      kind: 'live',
+      liveId: w.id
+    });
+  });
+  // Newest first
+  out.sort((x,y)=> (y.date||'').localeCompare(x.date||''));
+  return out;
+}
+
+function renderTaxesTab(){
+  // Set tax rate field
+  const rateEl = document.getElementById('tax-rate');
+  if(rateEl && rateEl.value==='') rateEl.value = getTaxRate();
+  const rate = rateEl ? (parseFloat(rateEl.value)||0) : getTaxRate();
+  setTaxRate(rate);
+
+  // Default the date field
+  const dEl=document.getElementById('wd-date');
+  if(dEl && !dEl.value) dEl.value=new Date().toISOString().slice(0,10);
+
+  const all = getAllWithdrawals();
+  // Take-home is what actually hit the pocket (prop firm applies split)
+  const grossTakeHome = all.reduce((s,w)=>s+w.takeHome,0);
+  const taxSetAside = grossTakeHome * (rate/100);
+  const netAfterTax = grossTakeHome - taxSetAside;
+
+  const sum = document.getElementById('tax-summary');
+  if(sum){
+    sum.innerHTML =
+      '<div class="metric"><div class="metric-label">Total Withdrawn</div><div class="metric-value" style="font-size:18px;">$'+grossTakeHome.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})+'</div></div>'
+      +'<div class="metric"><div class="metric-label">Set Aside for Tax ('+rate+'%)</div><div class="metric-value neg" style="font-size:18px;">$'+taxSetAside.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})+'</div></div>'
+      +'<div class="metric"><div class="metric-label">Net After Tax</div><div class="metric-value pos" style="font-size:18px;">$'+netAfterTax.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})+'</div></div>'
+      +'<div class="metric"><div class="metric-label">Withdrawals</div><div class="metric-value" style="font-size:18px;">'+all.length+'</div></div>';
+  }
+
+  const list = document.getElementById('withdrawals-list');
+  if(list){
+    if(!all.length){
+      list.innerHTML='<div style="font-size:13px;color:var(--text-faint);padding:8px 0;">No withdrawals recorded yet. Add a live/personal withdrawal above, or record one on a prop firm account.</div>';
+    } else {
+      list.innerHTML = all.map(w=>{
+        const dateFmt = w.date ? new Date(w.date+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—';
+        const tax = w.takeHome * (rate/100);
+        const net = w.takeHome - tax;
+        const srcColor = w.kind==='prop' ? 'var(--blue-text)' : 'var(--green)';
+        const srcBg = w.kind==='prop' ? 'var(--blue-bg)' : 'var(--green-bg)';
+        const delBtn = w.kind==='live'
+          ? '<button class="del-btn" style="font-size:10px;padding:3px 7px;" data-id="'+w.liveId+'" onclick="deleteLiveWithdrawal(this.dataset.id)">✕</button>'
+          : '<span style="font-size:9px;color:var(--text-faint);">edit on Prop Firm page</span>';
+        const editBtn = w.kind==='live'
+          ? '<button class="edit-btn" style="font-size:10px;padding:3px 8px;" data-id="'+w.liveId+'" onclick="editLiveWithdrawal(this.dataset.id)">Edit</button>'
+          : '';
+        return '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:12px 14px;margin-bottom:8px;">'
+          +'<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px;">'
+          +'<div><div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;"><span style="font-size:11px;font-weight:600;background:'+srcBg+';color:'+srcColor+';padding:2px 8px;border-radius:10px;">'+w.source+'</span>'
+          +(w.split&&w.split!=='N/A'?'<span style="font-size:10px;color:var(--text-faint);">Split '+w.split+'</span>':'')+'</div>'
+          +'<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">'+dateFmt+' · '+w.account+(w.note?' · '+w.note:'')+'</div></div>'
+          +'<div style="display:flex;gap:6px;align-items:center;flex-shrink:0;">'+editBtn+delBtn+'</div>'
+          +'</div>'
+          +'<div style="display:flex;gap:16px;">'
+          +'<div><div style="font-size:10px;text-transform:uppercase;color:var(--text-muted);">Take Home</div><div style="font-size:15px;font-weight:700;">$'+w.takeHome.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})+'</div></div>'
+          +'<div><div style="font-size:10px;text-transform:uppercase;color:var(--text-muted);">Tax ('+rate+'%)</div><div style="font-size:15px;font-weight:700;color:var(--red);">$'+tax.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})+'</div></div>'
+          +'<div><div style="font-size:10px;text-transform:uppercase;color:var(--text-muted);">Net</div><div style="font-size:15px;font-weight:700;color:var(--green);">$'+net.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})+'</div></div>'
+          +'</div></div>';
+      }).join('');
+    }
+  }
+}
+
+function saveLiveWithdrawal(){
+  const date = document.getElementById('wd-date').value || new Date().toISOString().slice(0,10);
+  const amount = parseFloat(document.getElementById('wd-amount').value);
+  const source = document.getElementById('wd-source').value;
+  const note = document.getElementById('wd-note').value.trim();
+  if(!amount||isNaN(amount)){ flash_msg('Enter a withdrawal amount'); return; }
+  const editId = document.getElementById('wd-edit-id').value;
+  if(editId){
+    const idx = liveWithdrawals.findIndex(w=>String(w.id)===String(editId));
+    if(idx!==-1) liveWithdrawals[idx] = {id: parseInt(editId), date, amount, source, note};
+    flash_msg('✓ Withdrawal updated');
+  } else {
+    liveWithdrawals.push({ id: Date.now(), date, amount, source, note });
+    flash_msg('✓ Withdrawal added');
+  }
+  persistLiveWithdrawals();
+  clearLiveWithdrawalForm();
+  renderTaxesTab();
+}
+
+function clearLiveWithdrawalForm(){
+  const setVal=(id,v)=>{const el=document.getElementById(id);if(el)el.value=v;};
+  setVal('wd-edit-id','');
+  setVal('wd-amount','');
+  setVal('wd-note','');
+  setVal('wd-date',new Date().toISOString().slice(0,10));
+  setVal('wd-source','Live / Personal');
+  const btn=document.querySelector('#tab-taxes .btn-primary');
+  if(btn) btn.textContent='Save Withdrawal';
+}
+
+function editLiveWithdrawal(id){
+  const w = liveWithdrawals.find(x=>String(x.id)===String(id));
+  if(!w) return;
+  document.getElementById('wd-edit-id').value=w.id;
+  document.getElementById('wd-date').value=w.date||'';
+  document.getElementById('wd-amount').value=w.amount||'';
+  document.getElementById('wd-source').value=w.source||'Live / Personal';
+  document.getElementById('wd-note').value=w.note||'';
+  const btn=document.querySelector('#tab-taxes .btn-primary');
+  if(btn) btn.textContent='Save Changes';
+  const sec=document.getElementById('tab-taxes');
+  if(sec) sec.scrollTo({top:0,behavior:'smooth'});
+  flash_msg('✏️ Editing withdrawal');
+}
+
+function deleteLiveWithdrawal(id){
+  const sid=String(id);
+  if(window._lwDeletePending===sid){
+    delete window._lwDeletePending;
+    liveWithdrawals = liveWithdrawals.filter(w=>String(w.id)!==sid);
+    persistLiveWithdrawals();
+    renderTaxesTab();
+    flash_msg('✓ Withdrawal deleted');
+    return;
+  }
+  window._lwDeletePending=sid;
+  flash_msg('⚠️ Tap ✕ again to delete');
+  setTimeout(()=>{ if(window._lwDeletePending===sid) delete window._lwDeletePending; }, 4000);
+}
+
+function exportWithdrawalsCSV(){
+  const rate = getTaxRate();
+  const all = getAllWithdrawals();
+  if(!all.length){ flash_msg('No withdrawals to export'); return; }
+  const headers=['Date','Source','Account','Note','Amount','Take Home','Split','Tax Rate %','Tax Set Aside','Net After Tax'];
+  const rows = all.map(w=>{
+    const tax=w.takeHome*(rate/100);
+    return [w.date,w.source,w.account,w.note,w.amount,w.takeHome.toFixed(2),w.split||'',rate,tax.toFixed(2),(w.takeHome-tax).toFixed(2)];
+  });
+  const csv=[headers,...rows].map(r=>r.map(c=>{
+    const s=String(c==null?'':c);
+    return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;
+  }).join(',')).join('\n');
+  const blob=new Blob([csv],{type:'text/csv'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download='withdrawals-taxes.csv'; a.click();
+  URL.revokeObjectURL(url);
+  flash_msg('✓ Exported');
+}
+
+// ═══════════════════════════════════════════════════════════════
 // RED FOLDER NEWS (no-trade windows)
 // ═══════════════════════════════════════════════════════════════
 const RF_BUFFER_MIN = 30; // minutes before & after each release
@@ -3574,40 +3815,6 @@ function closePropTradesModal(){
   if(m) m.classList.remove('open');
 }
 
-function editWithdrawal(pfId, idx){
-  const a = propFirmAccounts.find(a=>String(a.id)===String(pfId));
-  if(!a||!a.withdrawals) return;
-  const w = a.withdrawals[parseInt(idx)];
-  if(!w) return;
-  const dateEl  = document.getElementById('pf-wd-date-'+pfId);
-  const amtEl   = document.getElementById('pf-wd-amt-'+pfId);
-  const splitEl = document.getElementById('pf-wd-split-'+pfId);
-  if(dateEl)  dateEl.value  = w.date||'';
-  if(amtEl)   amtEl.value   = String(w.amount||'');
-  if(splitEl) splitEl.value = w.split||'';
-  calcWithdrawalSplit(pfId);
-  const addBtn = document.querySelector('button[data-pfid="'+pfId+'"].btn-primary');
-  if(addBtn){ addBtn.textContent='Update Withdrawal'; addBtn.dataset.editidx=String(idx); }
-  flash_msg('Editing withdrawal - update and tap Save');
-}
-
-function addWithdrawal(pfId){
-  const a=propFirmAccounts.find(a=>String(a.id)===String(pfId));
-  if(!a)return;
-  const amt=parseFloat(document.getElementById('pf-wd-amt-'+pfId).value);
-  if(!amt||isNaN(amt)){flash_msg('Enter a withdrawal amount');return;}
-  if(!a.withdrawals)a.withdrawals=[];
-  a.withdrawals.push({
-    date:document.getElementById('pf-wd-date-'+pfId).value||new Date().toISOString().slice(0,10),
-    amount:amt,
-    note:document.getElementById('pf-wd-note-'+pfId).value.trim()||'Withdrawal'
-  });
-  savePropFirms();
-  renderPropFirmTab();
-  flash_msg('✓ Withdrawal recorded');
-}
-
-
 function calcWithdrawalSplit(pfId){
   const amt = parseFloat(document.getElementById('pf-wd-amt-'+pfId)?.value)||0;
   const split = document.getElementById('pf-wd-split-'+pfId)?.value||'';
@@ -3682,13 +3889,24 @@ function addWithdrawal(pfId){
   if(!a.withdrawals) a.withdrawals=[];
   const splitVal = document.getElementById('pf-wd-split-'+pfId)?.value||'';
   const splitPct = splitVal==='80/20'?0.8:splitVal==='90/10'?0.9:null;
-  a.withdrawals.push({
+  const record = {
     date: document.getElementById('pf-wd-date-'+pfId)?.value||new Date().toISOString().slice(0,10),
     amount: amt, split: splitVal||'N/A',
     takeHome: splitPct ? parseFloat((amt*splitPct).toFixed(2)) : amt
-  });
+  };
+  // Edit mode: the add button carries an editidx set by editWithdrawal()
+  const addBtn = document.querySelector('button[data-pfid="'+pfId+'"].btn-primary');
+  const editIdx = addBtn && addBtn.dataset.editidx!=null && addBtn.dataset.editidx!=='' ? parseInt(addBtn.dataset.editidx) : -1;
+  if(editIdx>=0){
+    a.withdrawals[editIdx] = record;
+    delete addBtn.dataset.editidx;
+    flash_msg('✓ Withdrawal updated');
+  } else {
+    a.withdrawals.push(record);
+    flash_msg('✓ Withdrawal recorded');
+  }
   savePropFirms(); renderPropFirmTab();
-  flash_msg('&#10003; Withdrawal recorded');
+  try{ renderTaxesTab(); }catch(e){}
 }
 
 function deleteWithdrawal(pfId,idx){
@@ -3697,6 +3915,7 @@ function deleteWithdrawal(pfId,idx){
   a.withdrawals.splice(parseInt(idx),1);
   savePropFirms();
   renderPropFirmTab();
+  try{ renderTaxesTab(); }catch(e){}
 }
 
 
